@@ -1,6 +1,6 @@
 import numpy as np
 
-path = "/Users/hiphop/Dropbox/decision trees/data/"
+path = "datasets/"
 
 def load_lymphography():
 	name = "lymphography"
