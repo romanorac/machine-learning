@@ -2,34 +2,16 @@ import datasets
 import define_test
 import measures
 
-
-def set_random_seed(seed):
-	import random
-	import numpy as np
-	random.seed(seed)
-	np.random.seed(seed)
-	print "random seed to",seed
-
-def clasifier_comparison_test(test_cases):
-	print 
+def clasifier_comparison_test(test_cases, args):
 	print "Comparison of DECISION TREE, RANDOM FOREST, WEIGHTED FOREST"
-	args = {}
-	args["num_trees"] = 20 
-	args["max_tree_nodes"] = 20 
-	args["leaf_min_inst"] = 5 
-	args["class_majority"] = 1
-	args["measure"] = measures.info_gain
-	#args["measure"] = measures.mdl
-	args["split_fun"] = measures.equal_freq_splits
-	#args["split_fun"] = measures.random_splits
 	print args
 	
 	for num_test in test_cases:
 		if num_test == 1:
 			define_test.compare(datasets.load_breast_cancer(), args)
 			define_test.compare(datasets.load_car(), args)
-			define_test.compare(datasets.load_lung(), args) #Decision tree does 100%
-			define_test.compare(datasets.load_lenses(), args) #Too small
+			#define_test.compare(datasets.load_lung(), args) #Decision tree does 100%
+			#define_test.compare(datasets.load_lenses(), args) #Too small
 			
 		elif num_test == 2:
 			define_test.compare(datasets.load_segmentation(), args)
@@ -39,19 +21,11 @@ def clasifier_comparison_test(test_cases):
 		elif num_test == 3:
 			define_test.compare(datasets.load_bank(), args)
 			define_test.compare(datasets.load_lymphography(), args)
+		elif num_test == 4:
+			define_test.compare(datasets.load_segmentation_big(), args)
 
-def decision_tree_test(test_cases):
-	print 
-	print "TEST OF DECISION TREE ON TRAINING DATA"
-	args = {}
-	args["max_tree_nodes"] = 20 
-	args["leaf_min_inst"] = 5  
-	args["class_majority"] = 1
-	args["show_tree"] = False
-	args["measure"] = measures.info_gain
-	#args["measure"] = measures.mdl
-	args["split_fun"] = measures.equal_freq_splits
-	#args["split_fun"] = measures.random_splits
+def decision_tree_test(test_cases, args):
+	print "DECISION TREE"
 	print args
 
 	for num_test in test_cases:
@@ -70,16 +44,8 @@ def decision_tree_test(test_cases):
 			define_test.decision_tree_ca(datasets.load_bank(), args)
 			define_test.decision_tree_ca(datasets.load_lymphography(), args)
 
-def decision_tree_measures_test(test_cases):
-	print
-	print "TEST OF DECISION TREE WITH IG & MDL"
-	args = {}
-	args["max_tree_nodes"] = 20 
-	args["leaf_min_inst"] = 5 
-	args["class_majority"] = 1
-	args["show_tree"] = False
-	args["split_fun"] = measures.equal_freq_splits
-	#args["split_fun"] = measures.random_splits
+def decision_tree_measures_test(test_cases, args):
+	print "DECISION TREE WITH IG & MDL"
 	print args
 
 	for num_test in test_cases:
@@ -98,26 +64,16 @@ def decision_tree_measures_test(test_cases):
 			define_test. decision_tree_measures(datasets.load_bank(), args)
 			define_test. decision_tree_measures(datasets.load_lymphography(), args)
 
-def weighted_forest_test(test_cases):
-	print
+def weighted_forest_test(test_cases, args):
 	print "TEST OF WEIGHTED FOREST"
-	args = {}
-	args["num_trees"] = 20 
-	args["max_tree_nodes"] = 20 
-	args["leaf_min_inst"] = 5 
-	args["class_majority"] = 0.98
-	args["measure"] = measures.info_gain
-	#args["measure"] = measures.mdl
-	args["split_fun"] = measures.equal_freq_splits
-	#args["split_fun"] = measures.random_splits
 	print args
-	
+	print
 	for num_test in test_cases:
 		if num_test == 1:
 			define_test.weighted_forest(datasets.load_breast_cancer(), args)
 			define_test.weighted_forest(datasets.load_car(), args)
-			define_test.weighted_forest(datasets.load_lung(), args) #Decision tree does 100%
-			define_test.weighted_forest(datasets.load_lenses(), args) #Too small
+			#define_test.weighted_forest(datasets.load_lung(), args) #Decision tree does 100%
+			#define_test.weighted_forest(datasets.load_lenses(), args) #Too small
 			
 		elif num_test == 2:
 			define_test.weighted_forest(datasets.load_segmentation(), args)
@@ -125,11 +81,11 @@ def weighted_forest_test(test_cases):
 			define_test.weighted_forest(datasets.load_wine(), args)
 			
 		elif num_test == 3:
-			define_test.weighted_forest(datasets.load_bank(), args)
+			#define_test.weighted_forest(datasets.load_bank(), args)
 			define_test.weighted_forest(datasets.load_lymphography(), args)
 
-def gower_similarity_test():
-	define_test.gower_similarity_test()
+def gower_dissimilarity_test():
+	define_test.gower_dissimilarity_test()
 
 def nominal_feature_estimation_mdl():
 	define_test.nominal_feature_estimation_mdl()
@@ -137,17 +93,42 @@ def nominal_feature_estimation_mdl():
 def nominal_feature_estimation_info_gain():
 	define_test.nominal_feature_estimation_info_gain()
 
+def margin_test():
+	y_dist = {"a":0.6, "b":0.3, "c":0.1}
+	correct_margins = [0.3, -0.5]
+	correct_y = ["a", "c"]
+	define_test.margin_test(y_dist, correct_y, correct_margins)
+
+	y_dist = {"a":1}
+	correct_margins = [1,-1]
+	correct_y = ["a","b"]
+	define_test.margin_test(y_dist, correct_y, correct_margins)
+
 if __name__ == '__main__':
-	set_random_seed(5)
-	gower_similarity_test()
+	args = {}
+	args["num_trees"] = 50 
+	args["max_tree_nodes"] = 50
+	args["leaf_min_inst"] = 5 
+	args["class_majority"] = 1
+	args["measure"] = measures.info_gain
+	#args["measure"] = measures.mdl
+	args["split_fun"] = measures.equal_freq_splits
+	#args["split_fun"] = measures.random_splits
+	args["intervals"] = 10
+		
+	args["show_time"] = False
+	args["show_tree"] = False
+	args["seed"] = 1
+
+	margin_test()
+	gower_dissimilarity_test()
 	nominal_feature_estimation_mdl()
 	nominal_feature_estimation_info_gain()
 	print
-	clasifier_comparison_test([1,2,3])
-	decision_tree_test([1,2,3])
-	decision_tree_measures_test([1,2,3])
-	weighted_forest_test([1,2,3])
-	
+	decision_tree_test([1,2,3], args)
+	decision_tree_measures_test([1,2,3], args)
+	clasifier_comparison_test([1,2,3], args)
+
 
 	
 

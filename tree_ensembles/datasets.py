@@ -1,6 +1,6 @@
 import numpy as np
 
-path = "/Users/hiphop/Documents/GitHub/IterativeML/tree_ensembles/datasets/"
+path = "/Users/hiphop/Dropbox/decision trees/data/"
 
 def load_lymphography():
 	name = "lymphography"
@@ -135,6 +135,19 @@ def load_segmentation():
 
 	return x, y, t, feature_names, name, dataset_type
 
+def load_segmentation_big():
+	name = "segmentation huge dataset"
+	dataset_type = "continuous features"
+
+	f = open("/Users/hiphop/datasets/playground/xaaaaa","r")
+	data = np.loadtxt(f, delimiter = ",",dtype= np.string0)
+	x = np.array(data[:,range(2,21)],dtype = np.float)
+	y = data[:,1]
+
+	feature_names = ["REGION-CENTROID-COL","REGION-CENTROID-ROW","REGION-PIXEL-COUNT","SHORT-LINE-DENSITY-5","SHORT-LINE-DENSITY-2","VEDGE-MEAN","VEDGE-SD","HEDGE-MEAN","HEDGE-SD","INTENSITY-MEAN","RAWRED-MEAN","RAWBLUE-MEAN","RAWGREEN-MEAN","EXRED-MEAN","EXBLUE-MEAN","EXGREEN-MEAN","VALUE-MEAN","SATURATION-MEAN","HUE-MEAN"]
+	t = ["c" for i in range(len(feature_names))]
+
+	return x, y, t, feature_names, name, dataset_type
 
 
 

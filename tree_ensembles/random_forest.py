@@ -1,26 +1,30 @@
 import numpy as np
 from collections import Counter
-from itertools import combinations
+from itertools import combinations, permutations
+
 import decision_tree
 import k_medoids
+import sys
+import time
 
 def bootstrap(x,y):	
 	#generate len(x) random numbers with replacement from 0 to range(len(x))
 	bag_indices = np.random.randint(len(x), size=(len(x)))
 	#set of unique sample identifiers in the bag
-	unique_bag = np.unique(bag_indices)
+	unique = set(bag_indices)
 	#select samples that are not in the bag
-	out_of_bag_indices = [i for i in range(len(x)) if i not in unique_bag]
+	out_of_bag_indices = [i for i in range(len(x)) if i not in unique]
+
 	return x[bag_indices], y[bag_indices], x[out_of_bag_indices], y[out_of_bag_indices]
 
-def fit(x, y, t, num_trees, max_tree_nodes, leaf_min_inst, class_majority, measure, split_fun):
+def fit(x, y, t, num_trees, max_tree_nodes, leaf_min_inst, class_majority, measure, split_fun, intervals):
 	"""
 	Random forest algorithm
 	"""
 
 	forest = []
 	for i in range(num_trees):
-		x_train, y_train, x_test, y_test = bootstrap(x, y)
+		x_train, y_train, x_out_of_bag, y_out_of_bag = bootstrap(x, y)
 		
 		tree = decision_tree.fit(
 			x = x_train, 
@@ -31,7 +35,8 @@ def fit(x, y, t, num_trees, max_tree_nodes, leaf_min_inst, class_majority, measu
 			class_majority = class_majority, 
 			randomized = True, 
 			measure = measure, 
-			split_fun = split_fun)
+			split_fun = split_fun,
+			intervals = intervals)
 		forest.append(tree)	
 	return forest
 
@@ -40,9 +45,9 @@ def predict(forest, sample):
 	y_dist = Counter(predictions)
 	return max(y_dist, key=y_dist.get)
 
-def gower_similarity(x1, x2, types, ranges):
+def gower_dissimilarity(x1, x2, types, ranges):
 	"""
-	Calculate gower similarity
+	Calculate gower dissimilarity
 
 	x1: numpy array - sample 1
 	x2: numpy array - sample 2
@@ -58,28 +63,21 @@ def gower_similarity(x1, x2, types, ranges):
 			ranges_count += 1
 		else: 
 			#feature is discrete
-			gower+= 1 if x1[i] == x2[i] else 0
+			gower += 1 if x1[i] == x2[i] else 0
 	return 1 - gower/float(len(x1))
 
-def fit_weighted(x, y, t, num_trees, max_tree_nodes, leaf_min_inst, class_majority, measure, split_fun):
-	"""
-	Weighted random forest
-	"""
+def fit_weighted(x, y, t, num_trees, max_tree_nodes, leaf_min_inst, class_majority, measure, split_fun, intervals):
 
-	#Add identifiers to input dataset
-	id_column = np.array([i for i in range(len(x))]).reshape(len(x),1) 
-	x = np.concatenate((id_column,x ), axis = 1)
-	
-	#initialize similarity matrix
-	similarity_mat = [[0 for i in range(len(x))] for j in range(len(x))]
-	forest, margins, gower_range = [], [], []
-	
+	similarity_mat = {} #initialize similarity matrix
+	forest, margins = [], []
 	for i in range(num_trees):
-		x_train, y_train, x_test, y_test = bootstrap(x, y)
+		bag_indices = np.random.randint(len(x), size=(len(x)))
+		unique = set(bag_indices)
+		out_of_bag_indices = [i for i in range(len(x)) if i not in unique]
 
 		tree = decision_tree.fit(
-			x = x_train[:,1:], #remove identifiers from decision tree
-			y = y_train, 
+			x = x[bag_indices], #remove identifiers from decision tree
+			y = y[bag_indices], 
 			t = t, 
 			max_tree_nodes = max_tree_nodes, 
 			leaf_min_inst = leaf_min_inst, 
@@ -87,101 +85,124 @@ def fit_weighted(x, y, t, num_trees, max_tree_nodes, leaf_min_inst, class_majori
 			randomized = True, 
 			measure = measure, 
 			split_fun = split_fun,
-			gower = True) #calculate ranges of continuous features
-		
-		#store gower ranges from every bootstrap sample for every continuous feature. 
-		gower_range.append(tree["gower_range"]) 
+			intervals = intervals)
 		forest.append(tree)
 		
 		#calculate margins
-		leafs, tree_margins = [], []
-		for j in range(len(x_test)):
-			#pass test sample without identifier
-			leaf, margin = decision_tree.predict(tree, x_test[j,1:], y_test[j])
-			leafs.append(leaf)
-			tree_margins.append(margin)
-
-		#join margins with test identifiers for each tree
-		margins.append(dict(zip(x_test[:,0].tolist(), tree_margins))) 
-
+		tree_margins, leafs_grouping = {}, {}
+		for j in out_of_bag_indices:
+			leaf, margin = decision_tree.predict(tree, x[j], y[j])
+			tree_margins[j] = margin
+			if leaf in leafs_grouping:
+				leafs_grouping[leaf].append(j)
+			else:
+				leafs_grouping[leaf] = [j]	
+		margins.append(tree_margins)
 		
-		leafs_grouping = {}
-		#For each leaf obtain its test identifier. Group test identifiers by leaf identifiers
-		for j in range(len(leafs)):
-			leafs_grouping[leafs[j]] = leafs_grouping.get(leafs[j], []) + [int(x_test[j,0])]
-
 		for k, v in leafs_grouping.iteritems():
-			#generate all combinations for every test identifier
-			for cx, cy in list(combinations(v,2)): 
-					#increase similarity twice, because of symmetric distance matrix
-					similarity_mat[cx][cy] += 1 
-					similarity_mat[cy][cx] += 1
+			for cx, cy in permutations(v,2): 
+				if cx in similarity_mat:
+					similarity_mat[cx][cy] = similarity_mat[cx].get(cy, 0) - 1
+				else:
+					similarity_mat[cx] = {cy: -1}
 
-	#Trees that are build from bootstrap samples does not necessarily see minimum and maximum of every continuous value. We calculate continuous ranges on the end of forest building process.
-	gower_range_new = []
-	for i in range(len(gower_range[0])):
-		minimum = np.min([gower_range[j][i][0] for j in range(len(gower_range))])
-		maximum = np.max([gower_range[j][i][1] for j in range(len(gower_range))])
-		gower_range_new.append(abs(maximum - minimum))
+	min_elements = []
+	for k, v in similarity_mat.iteritems():
+		min_id = min(similarity_mat[k], key = similarity_mat[k].get) 
+		min_elements.append((similarity_mat[k][min_id], min_id))
+	min_elements = sorted(min_elements)
 
-	#k = len(np.unique(y))
-	k = int(np.sqrt(len(x[0]))) + 1	#experimental - set number of medoids as sqrt(num_features)+1  
-	#divide similarities with number of trees
-	similarity_mat = np.true_divide(similarity_mat, num_trees) 
-	inds, medoids_i = k_medoids.fit(similarity_mat, k) #calculate medoids 
-	
+	k = int(np.sqrt(len(x[0]))) + 1 #sqrt(num_features)+1
+	#k = len(x[0])
+	#k = len(np.unique(y)) * len(np.unique(y))
+
+	cidx = set()
+	counter = 0
+	while counter < len(min_elements) and len(cidx) < k:
+		cidx.add(min_elements[counter][1])
+		counter += 1
+	inds, medoids_i = k_medoids.fit(similarity_mat,len(x), list(cidx))
+
 	#for every cluster join its sample identifiers on separate list
 	clusters = [np.where(inds == i)[0] for i in np.unique(inds)]
+	medoids = x[medoids_i] #set medoids without sample identifiers
 
-	medoids = x[medoids_i,1:] #set medoids without sample identifiers
-
+	stats = [[] for i in range(len(medoids_i))] 
 	for i in range(len(forest)): #for every tree in forest
 		for num, cluster in enumerate(clusters):
 			#num - sequence of a cluster
 			#cluster - all sample identifiers in cluster 
 
 			#calculate average margin for cluster
-			counter = 0
-			suma = 0
-			for sample_identifier in cluster:
-				if sample_identifier in margins[i]: #if tree predicted sample_identifier
-					suma += margins[i][sample_identifier]
-					counter+=1
-			if suma != 0:
-				forest[i]["margin" + str(num)] = suma/float(counter) #average margin
+			values = [margins[i][sample_id] for sample_id in cluster if int(sample_id) in margins[i]]
+			if values != []:
+				avg = np.average(values)
+				forest[i]["margin" + str(num)] = avg
+				stats[num].append(avg)
+			
+	stats = [np.median(value) for value in stats]
+	gower_range = np.array([np.ptp(x[:,i]) for i in range(len(t)) if t[i] == "c"])
+	gower_range[gower_range == 0] = 1e-9
 
-	return forest, medoids, gower_range_new
+	new_medoids = []
+	for i in range(len(medoids)):
+		cont, disc = [],[]
+		for j in range(len(medoids[i])):
+			if t[j] == "d":
+				disc.append(medoids[i][j])
+			else:
+				cont.append(medoids[i][j])
+		new_medoids.append((np.array(cont), np.array(disc)))
+	
+	return forest, new_medoids, stats, gower_range
 
-def predict_weighted(forest, medoids, gower_range, sample, t):
+def predict_weighted(forest, medoids, stats, gower_range, sample, t):
 	"""
 	Function uses weights for prediction of a sample
 	"""
 
 	#calculate similarity with sample and with every medoid
-	similarity = []
-	for i, medoid in enumerate(medoids):
-		similarity.append((gower_similarity(sample, medoid, t, gower_range), i))
-	#select index of most similar medoid. Lowest value is most similar.
-	comparison_i = sorted(similarity)[0][1] 
-
-	predictions = {}
-	for tree in forest:
-		#make predictions with trees with selected margin
-		if "margin"+str(comparison_i) in tree:
-			#for every predicted label, store its margins 
-			pred = decision_tree.predict(tree, sample)
-			predictions[pred] = predictions.get(pred, []) + [tree["margin"+str(comparison_i)]]
+	#similarity = sorted([(round(gower_dissimilarity(sample, medoid, t, gower_range),4),i) for i, medoid in enumerate(medoids)])
+	cont = np.array([sample[i] for i in range(len(sample)) if t[i] == "c"])
+	disc = np.array([sample[i] for i in range(len(sample)) if t[i] == "d"])
 	
-	if predictions == {}: 
-		#if there is no tree with selected margin. Make a prediction with all forest
-		return predict(forest, sample)
-	else:
-		for k, v in predictions.iteritems(): 
-			predictions[k] = np.average(v) #for every predicted label, calculate average margin
-		
-		#label with higest average margin is selected as prediction
-		return max(predictions, key = predictions.get) 
+	similarity = []
+	#print gower_range
+	for i, medoid in enumerate(medoids):
+		gower = 1 - (sum(1 - np.true_divide(np.abs(cont - medoid[0]), gower_range)) + np.sum(disc == medoid[1]))/float(len(cont) + len(disc))
+		similarity.append((round(gower,4), i))
+	
+	
+	similarity = sorted(similarity)
+	indices = [sim[1] for sim in similarity if similarity[0][0] == sim[0]]
 
+	
+ 	global_predictions = {}
+	for index in indices:
+
+		predictions = {}
+		margin = "margin"+str(index)
+		for tree in forest:
+			#make predictions with trees with selected margin
+			if margin in tree: #and tree[margin] >= stats[index]:
+				#for every predicted label, store its margins 
+				pred = decision_tree.predict(tree, sample)
+				predictions[pred] = predictions.get(pred, []) + [tree[margin]]
+
+
+		for k, v in predictions.iteritems(): 
+			predictions[k] = np.average(v) * len(v)
+		#if predictions == {}:
+
+		#else:
+
+		max_pred = max(predictions, key = predictions.get)
+		if max_pred not in global_predictions:
+			global_predictions[max_pred] = predictions[max_pred]
+		elif predictions[max_pred] > global_predictions[max_pred]:
+			global_predictions[max_pred] = predictions[max_pred]
+
+	return max(global_predictions, key = global_predictions.get) 
 
 
 

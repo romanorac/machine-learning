@@ -11,8 +11,9 @@ import numpy as np
 import math
 from collections import Counter
 import random
+import sys
 
-def random_splits(x, y, intervals = 10):
+def random_splits(x, y, intervals):
 	"""
 	Function makes discretization of continuous feature. It randomly splits continuous feature if len(x) > intervals. If there is less samples, it uses equal_freq_splits function. Split is mean value calculated from two distinct neighbor values.
 	
@@ -43,8 +44,8 @@ def random_splits(x, y, intervals = 10):
 		dist, splits = equal_freq_splits(x, y, intervals)
 	
 	return dist, splits
-	
-def equal_freq_splits(x, y, intervals = 10):
+
+def equal_freq_splits(x, y, intervals):
 	"""
 	Function makes discretization of continuous features. It splits continuous feature with equal label frequency if len(samples) > intervals. Otherwise it takes unique values and it makes intervals/3 number of splits. Split is mean value calculated from two distinct neighbor values
 	
@@ -52,34 +53,34 @@ def equal_freq_splits(x, y, intervals = 10):
 	y: numpy array - labels
 	intervals: int - number of intervals   
 	"""
-
 	indices = x.argsort() #sort continuous feature
 	x, y = x[indices],y[indices] #save sorted features with sorted labels
-	x_vals =  np.unique(x) #sorted unique values (x was sorted before)
-	
+	x_vals =  list(np.unique(x)) #sorted unique values (x was sorted before)
+	prev_i = 0
 	dist, splits = [], [-np.inf] #distribution of labels, split values (-inf dummy value)
-	if len(x_vals) < intervals: #if there is less unique values than intervals 
+	if len(x_vals) < intervals: #if there is less unique values than intervals s
 		#make interval/3 number of split - it is not desirable to make a split for every distinct value
-		prev_i = 0
-		for j in range(1, len(x_vals), intervals/3): 
-			i = np.searchsorted(x, x_vals[j]) #location of distinct value in x
-			splits.append(np.mean((x_vals[j-1], x_vals[j]))) #calculate mean 
-			dist.append(Counter(y[prev_i:i])) #append label distribution
-			prev_i = i
-		dist[-1] += Counter(y[i:]) #distribution of labels from current split to the end
+		for i in range(1, len(y)):
+			if y[i-1] != y[i]:
+				index = x_vals.index(x[i])
+				split = np.mean((x_vals[1 if index == 0 else index-1],x_vals[index])) 
+				if split > splits[-1]: #for distinct splits
+					dist.append(Counter(y[prev_i: i])) #calculate label distribution
+					splits.append(split)
+					prev_i = i
 
-	
 	else: #equal frequency discretization
 		freq = len(y)/intervals #interval
-
 		for i in range(1,intervals):
-			#mean is calculated with last value of previous and current interval
-			split = np.mean((x[(i-1)*freq],x[i*freq])) 
+			index = x_vals.index(x[i*freq])
+			split = np.mean((x_vals[1 if index == 0 else index-1],x_vals[index]))  
 			if split > splits[-1]: #for distinct splits
-				dist.append(Counter(y[(i-1)*freq: i*freq])) #calculate label distribution
+				dist.append(Counter(y[prev_i: i*freq])) #calculate label distribution
 				splits.append(split)
-		dist[-1] += Counter(y[i*freq:]) #distribution of labels from current split to the end
+				prev_i=i*freq
 
+
+	dist[-1] += Counter(y[prev_i:]) #distribution of labels from current split to the end
 	return dist, splits[1:]
 
 def nominal_splits(x, y, x_vals, y_dist):
@@ -120,7 +121,7 @@ def h(values):
 	ent[ent==0] = 1e-10
 	return -np.sum(np.multiply(ent, np.log2(ent)))
 
-def info_gain(x, y, ft, split_fun = equal_freq_splits):
+def info_gain(x, y, ft, split_fun, intervals):
 	"""
 	Function calculates information gain for discrete features. If feature is continuous it is firstly discretized.
 
@@ -136,9 +137,9 @@ def info_gain(x, y, ft, split_fun = equal_freq_splits):
 	h_y = h(y_dist.values()) #class entropy
 	
 	#calculate distributions and splits in accordance with feature type
-	dist, splits = nominal_splits(x, y, x_vals, y_dist) if ft == "d" else split_fun(x, y)
+	dist, splits = nominal_splits(x, y, x_vals, y_dist) if ft == "d" else split_fun(x, y, intervals)
 	
-	max_ig, max_i = 0, 0 	
+	max_ig, max_i = 0, 1 	
 	for i in range(1, len(dist)):
 		dist0 = np.sum([el for el in dist[:i]]) #iter 0: take first distribution
 		dist1 = np.sum([el for el in dist[i:]]) #iter 0: take the other distributions without first
@@ -148,8 +149,9 @@ def info_gain(x, y, ft, split_fun = equal_freq_splits):
 			max_ig, max_i = ig, i #store index and value of maximal information gain
 	
 	#store splits of maximal information gain in accordance with feature type
-	split = [splits[:max_i], splits[max_i:]] if ft == "d" else [splits[max_i-1], splits[max_i-1]]
-	return (max_ig,  split)
+	split = [splits[:max_i], splits[max_i:]] if ft == "d" else [float(splits[max_i-1]), float(splits[max_i-1])]
+	#print split
+	return (float(max_ig),  split)
 
 def multinomLog2(selectors):
 	"""
@@ -193,7 +195,7 @@ def calc_mdl(yx_dist, y_dist):
 		post += multinomLog2([len(y_dist.keys())-1, sum(x_val.values())])
 	return (prior - post)/float(sum(y_dist.values()))
 
-def mdl(x, y, ft, split_fun = equal_freq_splits):
+def mdl(x, y, ft, split_fun, intervals):
 	"""
 	Function calculates minimum description length for discrete features. If feature is continuous it is firstly discretized.
 
@@ -208,7 +210,7 @@ def mdl(x, y, ft, split_fun = equal_freq_splits):
 	
 	y_dist = Counter(y) #label distribution
 	#calculate distributions and splits in accordance with feature type
-	dist, splits = nominal_splits(x, y, x_vals, y_dist) if ft == "d" else split_fun(x, y)
+	dist, splits = nominal_splits(x, y, x_vals, y_dist) if ft == "d" else split_fun(x, y, intervals)
 	prior_mdl = calc_mdl(dist, y_dist)
 
 	max_mdl, max_i = 0, 1
